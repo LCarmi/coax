@@ -12,9 +12,7 @@ from ..value_transforms import ValueTransform
 from .base_func import BaseFunc, ExampleData, Inputs, ArgsType1, ArgsType2, ModelTypes
 
 
-__all__ = (
-    'Q',
-)
+__all__ = ("Q",)
 
 
 class Q(BaseFunc):
@@ -71,10 +69,16 @@ class Q(BaseFunc):
         Seed for pseudo-random number generators.
 
     """
-    def __init__(
-            self, func, env, observation_preprocessor=None, action_preprocessor=None,
-            value_transform=None, random_seed=None):
 
+    def __init__(
+        self,
+        func,
+        env,
+        observation_preprocessor=None,
+        action_preprocessor=None,
+        value_transform=None,
+        random_seed=None,
+    ):
         self.observation_preprocessor = observation_preprocessor
         self.action_preprocessor = action_preprocessor
         self.value_transform = value_transform
@@ -93,7 +97,8 @@ class Q(BaseFunc):
             func,
             observation_space=env.observation_space,
             action_space=env.action_space,
-            random_seed=random_seed)
+            random_seed=random_seed,
+        )
 
     def __call__(self, s, a=None):
         r"""
@@ -165,7 +170,8 @@ class Q(BaseFunc):
 
         if not isinstance(self.action_space, Discrete):
             raise ValueError(
-                "input 'A' is required for type-1 q-function when action space is non-Discrete")
+                "input 'A' is required for type-1 q-function when action space is non-Discrete"
+            )
 
         n = self.action_space.n
 
@@ -181,8 +187,9 @@ class Q(BaseFunc):
             A_rep = self.action_preprocessor(next(rngs), A_rep)  # one-hot encoding
 
             # evaluate on replicas => output shape: (batch * num_actions, 1)
-            Q_sa_rep, state_new = \
-                self.function(q1_params, q1_state, next(rngs), S_rep, A_rep, is_training)
+            Q_sa_rep, state_new = self.function(
+                q1_params, q1_state, next(rngs), S_rep, A_rep, is_training
+            )
             Q_s = Q_sa_rep.reshape(-1, n)  # shape: (batch, num_actions)
 
             return Q_s, state_new
@@ -208,13 +215,18 @@ class Q(BaseFunc):
 
     @classmethod
     def example_data(
-            cls, env, observation_preprocessor=None, action_preprocessor=None,
-            batch_size=1, random_seed=None):
-
+        cls,
+        env,
+        observation_preprocessor=None,
+        action_preprocessor=None,
+        batch_size=1,
+        random_seed=None,
+    ):
         if not isinstance(env.observation_space, Space):
             raise TypeError(
                 "env.observation_space must be derived from gymnasium.Space, "
-                f"got: {type(env.observation_space)}")
+                f"got: {type(env.observation_space)}"
+            )
 
         if observation_preprocessor is None:
             observation_preprocessor = default_preprocessor(env.observation_space)
@@ -223,7 +235,7 @@ class Q(BaseFunc):
             action_preprocessor = default_preprocessor(env.action_space)
 
         rnd = onp.random.RandomState(random_seed)
-        rngs = hk.PRNGSequence(rnd.randint(jnp.iinfo('int32').max))
+        rngs = hk.PRNGSequence(rnd.randint(jnp.iinfo("int32").max))
 
         # input: state observations
         S = [safe_sample(env.observation_space, rnd) for _ in range(batch_size)]
@@ -253,25 +265,28 @@ class Q(BaseFunc):
         return ModelTypes(type1=q1_data, type2=q2_data)
 
     def _check_signature(self, func):
-        sig_type1 = ('S', 'A', 'is_training')
-        sig_type2 = ('S', 'is_training')
+        sig_type1 = ("S", "A", "is_training")
+        sig_type2 = ("S", "is_training")
         sig = tuple(signature(func).parameters)
 
         if sig not in (sig_type1, sig_type2):
-            sig = ', '.join(sig)
-            alt = ' or func(S, is_training)' if isinstance(self.action_space, Discrete) else ''
+            sig = ", ".join(sig)
+            alt = " or func(S, is_training)" if isinstance(self.action_space, Discrete) else ""
             raise TypeError(
-                f"func has bad signature; expected: func(S, A, is_training){alt}, got: func({sig})")
+                f"func has bad signature; expected: func(S, A, is_training){alt}, got: func({sig})"
+            )
 
         if sig == sig_type2 and not isinstance(self.action_space, Discrete):
             raise TypeError("type-2 q-functions are only well-defined for Discrete action spaces")
 
-        Env = namedtuple('Env', ('observation_space', 'action_space'))
+        Env = namedtuple("Env", ("observation_space", "action_space"))
         example_data_per_modeltype = self.example_data(
             env=Env(self.observation_space, self.action_space),
+            observation_preprocessor=self.observation_preprocessor,
             action_preprocessor=self.action_preprocessor,
             batch_size=1,
-            random_seed=self.random_seed)
+            random_seed=self.random_seed,
+        )
 
         if sig == sig_type1:
             self._modeltype = 1
@@ -290,8 +305,10 @@ class Q(BaseFunc):
         if not jnp.issubdtype(actual.dtype, jnp.floating):
             raise TypeError(
                 "func has bad return dtype; expected a subdtype of jnp.floating, "
-                f"got dtype={actual.dtype}")
+                f"got dtype={actual.dtype}"
+            )
 
         if actual.shape != expected.shape:
             raise TypeError(
-                f"func has bad return shape, expected: {expected.shape}, got: {actual.shape}")
+                f"func has bad return shape, expected: {expected.shape}, got: {actual.shape}"
+            )

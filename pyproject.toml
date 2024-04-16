@@ -1,5 +1,5 @@
 [tool.ruff]
-line-length = 100 # The formatter wraps lines at a length of 100
+line-length = 101 # The formatter wraps lines at a length of 101
 ignore = [
   "E402"
   # "W503" and "W504" are not supported by Ruff yet
