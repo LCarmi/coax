@@ -1,0 +1,9 @@
+[tool.ruff]
+line-length = 100 # The formatter wraps lines at a length of 100
+ignore = [
+  "E402"
+  # "W503" and "W504" are not supported by Ruff yet
+]
+
+[pycodestyle]
+max-line-length = 100 # E501 reports lines that exceed the length of 100.
