@@ -81,11 +81,12 @@ class SoftClippedDoubleQLearning(ClippedDoubleQLearning):
                     A_next_list.append(A_next)
 
         # take the min to mitigate over-estimation
-        A_next_list = jnp.stack(A_next_list, axis=1)
         Q_sa_next_list = jnp.stack(Q_sa_next_list, axis=-1)
         assert Q_sa_next_list.ndim == 2, f"bad shape: {Q_sa_next_list.shape}"
 
         if is_stochastic(self.q):
+            A_next_list = jnp.stack(A_next_list, axis=1) # TODO: breaks dict action space
+            
             Q_sa_next_argmin = jnp.argmin(Q_sa_next_list, axis=-1)
             Q_sa_next_argmin_q = Q_sa_next_argmin % len(self.q_targ_list)
 
