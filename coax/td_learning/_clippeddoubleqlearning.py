@@ -186,6 +186,9 @@ class ClippedDoubleQLearning(BaseTDLearningQ):  # TODO(krholshe): make this less
                 f'{self.__class__.__name__}/loss': loss,
                 f'{self.__class__.__name__}/td_error': jnp.mean(W * td_error),
                 f'{self.__class__.__name__}/td_error_targ': jnp.mean(-dLoss_dQ(Q, Q_targ, W)),
+                f'{self.__class__.__name__}/min_Q': jnp.min(Q),
+                f'{self.__class__.__name__}/mean_Q': jnp.mean(Q),
+                f'{self.__class__.__name__}/max_Q': jnp.max(Q),
             })
             return loss, (td_error, state_new, metrics)
 
