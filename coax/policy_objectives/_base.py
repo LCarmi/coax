@@ -55,6 +55,9 @@ class PolicyObjective:
                 f'{self.__class__.__name__}/loss_bare': loss,
                 f'{self.__class__.__name__}/kl_div_old':
                     jnp.mean(jnp.exp(transition_batch.logP) * (transition_batch.logP - log_pi)),
+                f'{self.__class__.__name__}/max_log_pi': jnp.max(log_pi),
+                f'{self.__class__.__name__}/mean_log_pi': jnp.mean(log_pi),
+                f'{self.__class__.__name__}/min_log_pi': jnp.min(log_pi),
             }
 
             # add regularization term
