@@ -13,23 +13,19 @@ from ..regularizers import Regularizer
 from ..proba_dists import DiscretizedIntervalDist, EmpiricalQuantileDist
 
 
-__all__ = (
-    'BaseTDLearningV',
-    'BaseTDLearningQ',
-    'BaseTDLearningQWithTargetPolicy'
-)
+__all__ = ("BaseTDLearningV", "BaseTDLearningQ", "BaseTDLearningQWithTargetPolicy")
 
 
 class BaseTDLearning(ABC, RandomStateMixin):
     def __init__(self, f, f_targ=None, optimizer=None, loss_function=None, policy_regularizer=None):
-
         self._f = f
         self._f_targ = f if f_targ is None else f_targ
         self.loss_function = huber if loss_function is None else loss_function
 
         if not isinstance(policy_regularizer, (Regularizer, type(None))):
             raise TypeError(
-                f"policy_regularizer must be a Regularizer, got: {type(policy_regularizer)}")
+                f"policy_regularizer must be a Regularizer, got: {type(policy_regularizer)}"
+            )
         self.policy_regularizer = policy_regularizer
 
         # optimizer
@@ -86,6 +82,21 @@ class BaseTDLearning(ABC, RandomStateMixin):
         """
         grads, function_state, metrics, td_error = self.grads_and_metrics(transition_batch)
         if any(jnp.any(jnp.isnan(g)) for g in jax.tree_util.tree_leaves(grads)):
+            print("Found nan in TDLearning grads. Opening a debugpy session on port 9999")
+            import sys
+            import debugpy
+            
+            if not sys.gettrace():
+                debugpy.listen(("127.0.0.1", 9999))
+                sys.stdout.write("Start the VS Code debugger now, waiting...\n")
+                debugpy.wait_for_client()
+                sys.stdout.write("Debugger attached, starting server...\n")
+            
+            debugpy.breakpoint()
+
+            while True:
+                new_grads, new_function_state, new_metrics, new_td_error = self.grads_and_metrics(transition_batch)
+
             raise RuntimeError(f"found nan's in grads: {grads}")
         self.apply_grads(grads, function_state)
         return (metrics, td_error) if return_td_error else metrics
@@ -112,8 +123,9 @@ class BaseTDLearning(ABC, RandomStateMixin):
 
         """
         self._f.function_state = function_state
-        self.optimizer_state, self._f.params = \
-            self._apply_grads_func(self.optimizer, self.optimizer_state, self._f.params, grads)
+        self.optimizer_state, self._f.params = self._apply_grads_func(
+            self.optimizer, self.optimizer_state, self._f.params, grads
+        )
 
     def grads_and_metrics(self, transition_batch):
         r"""
@@ -147,8 +159,13 @@ class BaseTDLearning(ABC, RandomStateMixin):
 
         """
         return self._grads_and_metrics_func(
-            self._f.params, self.target_params, self._f.function_state, self.target_function_state,
-            self._f.rng, transition_batch)
+            self._f.params,
+            self.target_params,
+            self._f.function_state,
+            self.target_function_state,
+            self._f.rng,
+            transition_batch,
+        )
 
     def td_error(self, transition_batch):
         r"""
@@ -177,8 +194,13 @@ class BaseTDLearning(ABC, RandomStateMixin):
 
         """
         return self._td_error_func(
-            self._f.params, self.target_params, self._f.function_state, self.target_function_state,
-            self._f.rng, transition_batch)
+            self._f.params,
+            self.target_params,
+            self._f.function_state,
+            self.target_function_state,
+            self._f.rng,
+            transition_batch,
+        )
 
     @property
     def optimizer(self):
@@ -187,7 +209,8 @@ class BaseTDLearning(ABC, RandomStateMixin):
     @optimizer.setter
     def optimizer(self, new_optimizer):
         new_optimizer_state_structure = jax.tree_util.tree_structure(
-            new_optimizer.init(self._f.params))
+            new_optimizer.init(self._f.params)
+        )
         if new_optimizer_state_structure != jax.tree_util.tree_structure(self.optimizer_state):
             raise AttributeError("cannot set optimizer attr: mismatch in optimizer_state structure")
         self._optimizer = new_optimizer
@@ -207,7 +230,6 @@ class BaseTDLearning(ABC, RandomStateMixin):
 
 class BaseTDLearningV(BaseTDLearning):
     def __init__(self, v, v_targ=None, optimizer=None, loss_function=None, policy_regularizer=None):
-
         if not is_vfunction(v):
             raise TypeError(f"v must be a v-function, got: {type(v)}")
         if not (v_targ is None or is_vfunction(v_targ)):
@@ -218,7 +240,8 @@ class BaseTDLearningV(BaseTDLearning):
             f_targ=v_targ,
             optimizer=optimizer,
             loss_function=loss_function,
-            policy_regularizer=policy_regularizer)
+            policy_regularizer=policy_regularizer,
+        )
 
         def loss_func(params, target_params, state, target_state, rng, transition_batch):
             """
@@ -237,36 +260,45 @@ class BaseTDLearningV(BaseTDLearning):
             """
             rngs = hk.PRNGSequence(rng)
             S = self.v.observation_preprocessor(next(rngs), transition_batch.S)
-            W = jnp.clip(transition_batch.W, 0.1, 10.)  # clip importance weights to reduce variance
+            W = jnp.clip(transition_batch.W, 0.1, 10.0)  # clip importance weights to reduce variance
 
             metrics = {}
 
             # regularization term
             if self.policy_regularizer is None:
-                regularizer = 0.
+                regularizer = 0.0
             else:
                 regularizer, regularizer_metrics = self.policy_regularizer.batch_eval(
-                    target_params['reg'], target_params['reg_hparams'], target_state['reg'],
-                    next(rngs), transition_batch)
-                metrics.update({f'{self.__class__.__name__}/{k}': v for k,
-                               v in regularizer_metrics.items()})
+                    target_params["reg"],
+                    target_params["reg_hparams"],
+                    target_state["reg"],
+                    next(rngs),
+                    transition_batch,
+                )
+                metrics.update(
+                    {f"{self.__class__.__name__}/{k}": v for k, v in regularizer_metrics.items()}
+                )
 
             if is_stochastic(self.v):
                 dist_params, state_new = self.v.function(params, state, next(rngs), S, True)
-                dist_params_target = \
-                    self.target_func(target_params, target_state, rng, transition_batch)
+                dist_params_target = self.target_func(
+                    target_params, target_state, rng, transition_batch
+                )
 
                 if self.policy_regularizer is not None:
                     dist_params_target = self.v.proba_dist.affine_transform(
-                        dist_params_target, 1., -regularizer, self.v.value_transform)
+                        dist_params_target, 1.0, -regularizer, self.v.value_transform
+                    )
 
                 if isinstance(self.v.proba_dist, DiscretizedIntervalDist):
-                    loss = jnp.mean(self.v.proba_dist.cross_entropy(dist_params_target,
-                                                                    dist_params))
+                    loss = jnp.mean(self.v.proba_dist.cross_entropy(dist_params_target, dist_params))
                 elif isinstance(self.v.proba_dist, EmpiricalQuantileDist):
-                    loss = quantile_huber(dist_params_target['values'],
-                                          dist_params['values'],
-                                          dist_params['quantile_fractions'], W)
+                    loss = quantile_huber(
+                        dist_params_target["values"],
+                        dist_params["values"],
+                        dist_params["quantile_fractions"],
+                        W,
+                    )
 
                 # the rest here is only needed for metrics dict
                 V = self.v.proba_dist.mean(dist_params)
@@ -274,7 +306,8 @@ class BaseTDLearningV(BaseTDLearning):
                 G = self.v.proba_dist.mean(dist_params_target)
                 G = self.v.proba_dist.postprocess_variate(next(rngs), G, batch_mode=True)
                 dist_params_v_targ, _ = self.v.function(
-                    target_params['v_targ'], target_state['v_targ'], next(rngs), S, False)
+                    target_params["v_targ"], target_state["v_targ"], next(rngs), S, False
+                )
                 V_targ = self.v.proba_dist.mean(dist_params_v_targ)
                 V_targ = self.v.proba_dist.postprocess_variate(next(rngs), V_targ, batch_mode=True)
 
@@ -287,35 +320,40 @@ class BaseTDLearningV(BaseTDLearning):
 
                 # only needed for metrics dict
                 V_targ, _ = self.v.function(
-                    target_params['v_targ'], target_state['v_targ'], next(rngs), S, False)
+                    target_params["v_targ"], target_state["v_targ"], next(rngs), S, False
+                )
 
             chex.assert_equal_shape([G, V, V_targ, W])
             chex.assert_rank([G, V, V_targ, W], 1)
             dLoss_dV = jax.grad(self.loss_function, argnums=1)
             td_error = -V.shape[0] * dLoss_dV(G, V)  # e.g. (G - V) if loss function is MSE
             chex.assert_equal_shape([td_error, W])
-            metrics.update({
-                f'{self.__class__.__name__}/loss': loss,
-                f'{self.__class__.__name__}/td_error': jnp.mean(W * td_error),
-                f'{self.__class__.__name__}/td_error_targ': jnp.mean(-dLoss_dV(V, V_targ, W)),
-            })
+            metrics.update(
+                {
+                    f"{self.__class__.__name__}/loss": loss,
+                    f"{self.__class__.__name__}/td_error": jnp.mean(W * td_error),
+                    f"{self.__class__.__name__}/td_error_targ": jnp.mean(-dLoss_dV(V, V_targ, W)),
+                }
+            )
             return loss, (td_error, state_new, metrics)
 
         def grads_and_metrics_func(
-                params, target_params, state, target_state, rng, transition_batch):
-
+            params, target_params, state, target_state, rng, transition_batch
+        ):
             rngs = hk.PRNGSequence(rng)
             grads, (td_error, state_new, metrics) = jax.grad(loss_func, has_aux=True)(
-                params, target_params, state, target_state, next(rngs), transition_batch)
+                params, target_params, state, target_state, next(rngs), transition_batch
+            )
 
             # add some diagnostics about the gradients
-            metrics.update(get_grads_diagnostics(grads, f'{self.__class__.__name__}/grads_'))
+            metrics.update(get_grads_diagnostics(grads, f"{self.__class__.__name__}/grads_"))
 
             return grads, state_new, metrics, td_error
 
         def td_error_func(params, target_params, state, target_state, rng, transition_batch):
-            loss, (td_error, state_new, metrics) =\
-                loss_func(params, target_params, state, target_state, rng, transition_batch)
+            loss, (td_error, state_new, metrics) = loss_func(
+                params, target_params, state, target_state, rng, transition_batch
+            )
             return td_error
 
         self._grads_and_metrics_func = jit(grads_and_metrics_func)
@@ -331,18 +369,24 @@ class BaseTDLearningV(BaseTDLearning):
 
     @property
     def target_params(self):
-        return hk.data_structures.to_immutable_dict({
-            'v': self.v.params,
-            'v_targ': self.v_targ.params,
-            'reg': getattr(getattr(self.policy_regularizer, 'f', None), 'params', None),
-            'reg_hparams': getattr(self.policy_regularizer, 'hyperparams', None)})
+        return hk.data_structures.to_immutable_dict(
+            {
+                "v": self.v.params,
+                "v_targ": self.v_targ.params,
+                "reg": getattr(getattr(self.policy_regularizer, "f", None), "params", None),
+                "reg_hparams": getattr(self.policy_regularizer, "hyperparams", None),
+            }
+        )
 
     @property
     def target_function_state(self):
-        return hk.data_structures.to_immutable_dict({
-            'v': self.v.function_state,
-            'v_targ': self.v_targ.function_state,
-            'reg': getattr(getattr(self.policy_regularizer, 'f', None), 'function_state', None)})
+        return hk.data_structures.to_immutable_dict(
+            {
+                "v": self.v.function_state,
+                "v_targ": self.v_targ.function_state,
+                "reg": getattr(getattr(self.policy_regularizer, "f", None), "function_state", None),
+            }
+        )
 
     def _get_target_dist_params(self, params, state, rng, transition_batch):
         r"""
@@ -356,13 +400,13 @@ class BaseTDLearningV(BaseTDLearning):
         scale, shift = transition_batch.In, transition_batch.Rn  # defines affine transformation
         dist_params_next, _ = self.v_targ.function(params, state, next(rngs), S_next, False)
         dist_params_target = self.v_targ.proba_dist.affine_transform(
-            dist_params_next, scale, shift, self.v_targ.value_transform)
+            dist_params_next, scale, shift, self.v_targ.value_transform
+        )
         return dist_params_target
 
 
 class BaseTDLearningQ(BaseTDLearning):
     def __init__(self, q, q_targ=None, optimizer=None, loss_function=None, policy_regularizer=None):
-
         if not is_qfunction(q):
             raise TypeError(f"q must be a q-function, got: {type(q)}")
         if not (q_targ is None or isinstance(q_targ, (list, tuple)) or is_qfunction(q_targ)):
@@ -373,7 +417,8 @@ class BaseTDLearningQ(BaseTDLearning):
             f_targ=q_targ,
             optimizer=optimizer,
             loss_function=loss_function,
-            policy_regularizer=policy_regularizer)
+            policy_regularizer=policy_regularizer,
+        )
 
         def loss_func(params, target_params, state, target_state, rng, transition_batch):
             """
@@ -393,37 +438,45 @@ class BaseTDLearningQ(BaseTDLearning):
             rngs = hk.PRNGSequence(rng)
             S = self.q.observation_preprocessor(next(rngs), transition_batch.S)
             A = self.q.action_preprocessor(next(rngs), transition_batch.A)
-            W = jnp.clip(transition_batch.W, 0.1, 10.)  # clip importance weights to reduce variance
+            W = jnp.clip(transition_batch.W, 0.1, 10.0)  # clip importance weights to reduce variance
 
             metrics = {}
 
             # regularization term
             if self.policy_regularizer is None:
-                regularizer = 0.
+                regularizer = 0.0
             else:
                 regularizer, regularizer_metrics = self.policy_regularizer.batch_eval(
-                    target_params['reg'], target_params['reg_hparams'], target_state['reg'],
-                    next(rngs), transition_batch)
-                metrics.update({f'{self.__class__.__name__}/{k}': v for k,
-                               v in regularizer_metrics.items()})
+                    target_params["reg"],
+                    target_params["reg_hparams"],
+                    target_state["reg"],
+                    next(rngs),
+                    transition_batch,
+                )
+                metrics.update(
+                    {f"{self.__class__.__name__}/{k}": v for k, v in regularizer_metrics.items()}
+                )
 
             if is_stochastic(self.q):
-                dist_params, state_new = \
-                    self.q.function_type1(params, state, next(rngs), S, A, True)
-                dist_params_target = \
-                    self.target_func(target_params, target_state, rng, transition_batch)
+                dist_params, state_new = self.q.function_type1(params, state, next(rngs), S, A, True)
+                dist_params_target = self.target_func(
+                    target_params, target_state, rng, transition_batch
+                )
 
                 if self.policy_regularizer is not None:
                     dist_params_target = self.q.proba_dist.affine_transform(
-                        dist_params_target, 1., -regularizer, self.q.value_transform)
+                        dist_params_target, 1.0, -regularizer, self.q.value_transform
+                    )
 
                 if isinstance(self.q.proba_dist, DiscretizedIntervalDist):
-                    loss = jnp.mean(self.q.proba_dist.cross_entropy(dist_params_target,
-                                                                    dist_params))
+                    loss = jnp.mean(self.q.proba_dist.cross_entropy(dist_params_target, dist_params))
                 elif isinstance(self.q.proba_dist, EmpiricalQuantileDist):
-                    loss = quantile_huber(dist_params_target['values'],
-                                          dist_params['values'],
-                                          dist_params['quantile_fractions'], W)
+                    loss = quantile_huber(
+                        dist_params_target["values"],
+                        dist_params["values"],
+                        dist_params["quantile_fractions"],
+                        W,
+                    )
 
                 # the rest here is only needed for metrics dict
                 Q = self.q.proba_dist.mean(dist_params)
@@ -431,7 +484,8 @@ class BaseTDLearningQ(BaseTDLearning):
                 G = self.q.proba_dist.mean(dist_params_target)
                 G = self.q.proba_dist.postprocess_variate(next(rngs), G, batch_mode=True)
                 dist_params_q_targ, _ = self.q.function_type1(
-                    target_params['q_targ'], target_state['q_targ'], next(rngs), S, A, False)
+                    target_params["q_targ"], target_state["q_targ"], next(rngs), S, A, False
+                )
                 Q_targ = self.q.proba_dist.mean(dist_params_q_targ)
                 Q_targ = self.q.proba_dist.postprocess_variate(next(rngs), Q_targ, batch_mode=True)
 
@@ -444,35 +498,40 @@ class BaseTDLearningQ(BaseTDLearning):
 
                 # only needed for metrics dict
                 Q_targ, _ = self.q.function_type1(
-                    target_params['q_targ'], target_state['q_targ'], next(rngs), S, A, False)
+                    target_params["q_targ"], target_state["q_targ"], next(rngs), S, A, False
+                )
 
             chex.assert_equal_shape([G, Q, Q_targ, W])
             chex.assert_rank([G, Q, Q_targ, W], 1)
             dLoss_dQ = jax.grad(self.loss_function, argnums=1)
             td_error = -Q.shape[0] * dLoss_dQ(G, Q)  # e.g. (G - Q) if loss function is MSE
             chex.assert_equal_shape([td_error, W])
-            metrics.update({
-                f'{self.__class__.__name__}/loss': loss,
-                f'{self.__class__.__name__}/td_error': jnp.mean(W * td_error),
-                f'{self.__class__.__name__}/td_error_targ': jnp.mean(-dLoss_dQ(Q, Q_targ, W)),
-            })
+            metrics.update(
+                {
+                    f"{self.__class__.__name__}/loss": loss,
+                    f"{self.__class__.__name__}/td_error": jnp.mean(W * td_error),
+                    f"{self.__class__.__name__}/td_error_targ": jnp.mean(-dLoss_dQ(Q, Q_targ, W)),
+                }
+            )
             return loss, (td_error, state_new, metrics)
 
         def grads_and_metrics_func(
-                params, target_params, state, target_state, rng, transition_batch):
-
+            params, target_params, state, target_state, rng, transition_batch
+        ):
             rngs = hk.PRNGSequence(rng)
             grads, (td_error, state_new, metrics) = jax.grad(loss_func, has_aux=True)(
-                params, target_params, state, target_state, next(rngs), transition_batch)
+                params, target_params, state, target_state, next(rngs), transition_batch
+            )
 
             # add some diagnostics about the gradients
-            metrics.update(get_grads_diagnostics(grads, f'{self.__class__.__name__}/grads_'))
+            metrics.update(get_grads_diagnostics(grads, f"{self.__class__.__name__}/grads_"))
 
             return grads, state_new, metrics, td_error
 
         def td_error_func(params, target_params, state, target_state, rng, transition_batch):
-            loss, (td_error, state_new, metrics) =\
-                loss_func(params, target_params, state, target_state, rng, transition_batch)
+            loss, (td_error, state_new, metrics) = loss_func(
+                params, target_params, state, target_state, rng, transition_batch
+            )
             return td_error
 
         self._grads_and_metrics_func = jit(grads_and_metrics_func)
@@ -488,18 +547,24 @@ class BaseTDLearningQ(BaseTDLearning):
 
     @property
     def target_params(self):
-        return hk.data_structures.to_immutable_dict({
-            'q': self.q.params,
-            'q_targ': self.q_targ.params,
-            'reg': getattr(getattr(self.policy_regularizer, 'f', None), 'params', None),
-            'reg_hparams': getattr(self.policy_regularizer, 'hyperparams', None)})
+        return hk.data_structures.to_immutable_dict(
+            {
+                "q": self.q.params,
+                "q_targ": self.q_targ.params,
+                "reg": getattr(getattr(self.policy_regularizer, "f", None), "params", None),
+                "reg_hparams": getattr(self.policy_regularizer, "hyperparams", None),
+            }
+        )
 
     @property
     def target_function_state(self):
-        return hk.data_structures.to_immutable_dict({
-            'q': self.q.function_state,
-            'q_targ': self.q_targ.function_state,
-            'reg': getattr(getattr(self.policy_regularizer, 'f', None), 'function_state', None)})
+        return hk.data_structures.to_immutable_dict(
+            {
+                "q": self.q.function_state,
+                "q_targ": self.q_targ.function_state,
+                "reg": getattr(getattr(self.policy_regularizer, "f", None), "function_state", None),
+            }
+        )
 
     def _get_target_dist_params(self, params, state, rng, transition_batch, A_next):
         r"""
@@ -512,17 +577,18 @@ class BaseTDLearningQ(BaseTDLearning):
         S_next = self.q_targ.observation_preprocessor(next(rngs), transition_batch.S_next)
         scale, shift = transition_batch.In, transition_batch.Rn  # defines affine transformation
         dist_params_next, _ = self.q_targ.function_type1(
-            params, state, next(rngs), S_next, A_next, False)
+            params, state, next(rngs), S_next, A_next, False
+        )
         dist_params_target = self.q_targ.proba_dist.affine_transform(
-            dist_params_next, scale, shift, self.q_targ.value_transform)
+            dist_params_next, scale, shift, self.q_targ.value_transform
+        )
         return dist_params_target
 
 
 class BaseTDLearningQWithTargetPolicy(BaseTDLearningQ):
     def __init__(
-            self, q, pi_targ, q_targ=None, optimizer=None,
-            loss_function=None, policy_regularizer=None):
-
+        self, q, pi_targ, q_targ=None, optimizer=None, loss_function=None, policy_regularizer=None
+    ):
         if pi_targ is not None and not is_policy(pi_targ):
             raise TypeError(f"pi_targ must be a Policy, got: {type(pi_targ)}")
 
@@ -532,22 +598,28 @@ class BaseTDLearningQWithTargetPolicy(BaseTDLearningQ):
             q_targ=q_targ,
             optimizer=optimizer,
             loss_function=loss_function,
-            policy_regularizer=policy_regularizer)
+            policy_regularizer=policy_regularizer,
+        )
 
     @property
     def target_params(self):
-        return hk.data_structures.to_immutable_dict({
-            'q': self.q.params,
-            'q_targ': self.q_targ.params,
-            'pi_targ': getattr(self.pi_targ, 'params', None),
-            'reg': getattr(getattr(self.policy_regularizer, 'f', None), 'params', None),
-            'reg_hparams': getattr(self.policy_regularizer, 'hyperparams', None)})
+        return hk.data_structures.to_immutable_dict(
+            {
+                "q": self.q.params,
+                "q_targ": self.q_targ.params,
+                "pi_targ": getattr(self.pi_targ, "params", None),
+                "reg": getattr(getattr(self.policy_regularizer, "f", None), "params", None),
+                "reg_hparams": getattr(self.policy_regularizer, "hyperparams", None),
+            }
+        )
 
     @property
     def target_function_state(self):
-        return hk.data_structures.to_immutable_dict({
-            'q': self.q.function_state,
-            'q_targ': self.q_targ.function_state,
-            'pi_targ': getattr(self.pi_targ, 'function_state', None),
-            'reg':
-                getattr(getattr(self.policy_regularizer, 'f', None), 'function_state', None)})
+        return hk.data_structures.to_immutable_dict(
+            {
+                "q": self.q.function_state,
+                "q_targ": self.q_targ.function_state,
+                "pi_targ": getattr(self.pi_targ, "function_state", None),
+                "reg": getattr(getattr(self.policy_regularizer, "f", None), "function_state", None),
+            }
+        )

@@ -206,7 +206,7 @@ class BaseProbaDist(ABC):
 
         """
         return self._kl_divergence_func
-
+    
     @property
     def affine_transform(self):
         r"""

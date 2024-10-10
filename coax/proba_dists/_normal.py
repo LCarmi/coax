@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import numpy as onp
 from gymnasium.spaces import Box
 
-from ..utils import clipped_logit, jit
+from ..utils import clipped_logit, jit, mellow_transform
 from ._base import BaseProbaDist
 
 
@@ -107,7 +107,7 @@ class NormalDist(BaseProbaDist):
         def mode(dist_params):
             return mean(dist_params)
 
-        def log_proba(dist_params, X):
+        def log_proba(dist_params, X, use_mellow_debias: bool = False, use_mellow_rescale: bool = False):
             X = check_shape(X, name='X', flatten=True)
             mu = check_shape(dist_params['mu'], name='mu', flatten=True)
             logvar = check_shape(dist_params['logvar'], name='logvar', flatten=True)
@@ -116,15 +116,26 @@ class NormalDist(BaseProbaDist):
             logdetvar = jnp.sum(logvar, axis=-1)  # log(det(M)) = tr(log(M))
             quadratic = jnp.einsum('ij,ij->i', jnp.square(X - mu), jnp.exp(-logvar))
             logp = -0.5 * (n * log_2pi + logdetvar + quadratic)
+            
+            if use_mellow_debias or use_mellow_rescale:
+                n_actions = onp.prod(self.space.shape)
+                logp = mellow_transform(logp, n_actions, use_mellow_debias, use_mellow_rescale)
+                
             return logp
 
-        def entropy(dist_params):
+        def entropy(dist_params, use_mellow_debias: bool = False, use_mellow_rescale: bool = False):
             logvar = check_shape(dist_params['logvar'], name='logvar', flatten=True)
 
             assert logvar.ndim == 2  # check if flattened
             logdetvar = jnp.sum(logvar, axis=-1)  # log(det(M)) = tr(log(M))
             n = logvar.shape[-1]
-            return 0.5 * (n * log_2pi + logdetvar + n)
+            
+            ent = 0.5 * (n * log_2pi + logdetvar + n)
+            
+            if use_mellow_debias or use_mellow_rescale:
+                n_actions = onp.prod(self.space.shape)
+                ent = mellow_transform(ent, n_actions, use_mellow_debias, use_mellow_rescale)
+            return ent
 
         def cross_entropy(dist_params_p, dist_params_q):
             mu1 = check_shape(dist_params_p['mu'], name='mu_p', flatten=True)

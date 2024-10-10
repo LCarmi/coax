@@ -172,6 +172,7 @@ from ._misc import (
 from ._segment_tree import SegmentTree, SumTree, MinTree, MaxTree
 from ._quantile_funcs import quantiles, quantiles_uniform, quantile_cos_embedding
 from ._dmc_gym import make_dmc
+from ._mellow import mellow_transform
 
 
 __all__ = (
@@ -228,4 +229,5 @@ __all__ = (
     'sync_shared_params',
     'tree_ravel',
     'unvectorize',
+    'mellow_transform',
 )

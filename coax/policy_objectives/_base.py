@@ -93,6 +93,7 @@ class PolicyObjective:
             return new_opt_state, new_params
 
         self._grad_and_metrics_func = jit(grads_and_metrics_func)
+        self._grad_and_metrics_func_no_jit = grads_and_metrics_func
         self._apply_grads_func = jit(apply_grads_func, static_argnums=0)
 
     @property
@@ -152,6 +153,23 @@ class PolicyObjective:
         """
         grads, function_state, metrics = self.grads_and_metrics(transition_batch, Adv)
         if any(jnp.any(jnp.isnan(g)) for g in jax.tree_util.tree_leaves(grads)):
+            new_grads, new_function_state, new_metrics = self._grad_and_metrics_func_no_jit(self._pi.params, self._pi.function_state, self.hyperparams, self._last_rng,transition_batch, Adv)
+            
+            print("Found nan in PolicyObjective grads. Opening a debugpy session on port 9999")
+            import sys
+            import debugpy
+            
+            if not sys.gettrace():
+                debugpy.listen(("127.0.0.1", 9999))
+                sys.stdout.write("Start the VS Code debugger now, waiting...\n")
+                debugpy.wait_for_client()
+                sys.stdout.write("Debugger attached, starting server...\n")
+
+            debugpy.breakpoint()
+            
+            while(True):
+                new_grads, new_function_state, new_metrics = self._grad_and_metrics_func_no_jit(self._pi.params, self._pi.function_state, self.hyperparams, self._last_rng,transition_batch, Adv)
+            
             raise RuntimeError(f"found nan's in grads: {grads}")
         self.apply_grads(grads, function_state)
         return metrics
@@ -219,6 +237,7 @@ class PolicyObjective:
                 "should be non-zero. Please sample actions with their propensities: "
                 "a, logp = pi(s, return_logp=True) and then add logp to your reward tracer, "
                 "e.g. nstep_tracer.add(s, a, r, done, logp)")
+        self._last_rng = self._pi.rng
         return self._grad_and_metrics_func(
-            self._pi.params, self._pi.function_state, self.hyperparams, self._pi.rng,
+            self._pi.params, self._pi.function_state, self.hyperparams, self._last_rng,
             transition_batch, Adv)
