@@ -111,11 +111,11 @@ class ClippedDoubleQLearning(BaseTDLearningQ):  # TODO(krholshe): make this less
         self.pi_targ_list = [] if pi_targ_list is None else pi_targ_list
 
         # consistency check
-        if isinstance(self.q.action_space, Discrete):
-            if len(self.q_targ_list) < 2:
-                raise ValueError("len(q_targ_list) must be at least 2")
-        elif len(self.q_targ_list) * len(self.pi_targ_list) < 2:
-            raise ValueError("len(q_targ_list) * len(pi_targ_list) must be at least 2")
+        # if isinstance(self.q.action_space, Discrete):
+        #     if len(self.q_targ_list) < 2:
+        #         raise ValueError("len(q_targ_list) must be at least 2")
+        # elif len(self.q_targ_list) * len(self.pi_targ_list) < 2:
+        #     raise ValueError("len(q_targ_list) * len(pi_targ_list) must be at least 2")
 
         def loss_func(params, target_params, state, target_state, rng, transition_batch):
             rngs = hk.PRNGSequence(rng)
